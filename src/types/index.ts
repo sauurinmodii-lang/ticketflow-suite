@@ -20,6 +20,20 @@ export interface CompanyProfile {
   logoDataUrl: string | null;
 }
 
+export interface Group {
+  id: string;
+  name: string;
+  siteIds: string[];
+  description: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface GroupMember {
+  groupId: string;
+  userId: string;
+}
+
 export type AppRole = 'admin' | 'manager' | 'engineer' | 'user';
 
 export type Permission =
@@ -81,6 +95,7 @@ export interface Ticket {
   priority: TicketPriority;
   status: TicketStatus;
   createdBy: string;
+  assignedGroupId: string | null;
   assignedTo: string | null;
   resolvedBy: string | null;
   resolutionNotes: string | null;

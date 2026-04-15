@@ -1,5 +1,5 @@
-import type { Site, RoleConfig, AppUser } from '@/types';
-import { saveSites, saveRoleConfigs, saveUsers, saveCategories, markSeeded, saveCompany } from './dataStore';
+import type { Site, RoleConfig, AppUser, Group } from '@/types';
+import { saveSites, saveRoleConfigs, saveUsers, saveCategories, markSeeded, saveCompany, saveGroups, addGroupMember } from './dataStore';
 
 export function seedIfNeeded() {
   const seeded = localStorage.getItem('tms_seeded');
@@ -15,11 +15,7 @@ export function seedIfNeeded() {
   };
   saveSites([site]);
 
-  saveCategories([
-    { id: 'cat-1', name: 'Hardware', description: 'Hardware related issues', isActive: true, createdAt: new Date().toISOString() },
-    { id: 'cat-2', name: 'Software', description: 'Software related issues', isActive: true, createdAt: new Date().toISOString() },
-    { id: 'cat-3', name: 'Network', description: 'Network connectivity issues', isActive: true, createdAt: new Date().toISOString() },
-  ]);
+  saveCategories([]);
 
   const adminRole: RoleConfig = {
     role: 'admin',
@@ -30,25 +26,7 @@ export function seedIfNeeded() {
     ],
   };
 
-  const managerRole: RoleConfig = {
-    role: 'manager',
-    permissions: [
-      'create_ticket', 'approve_ticket', 'allocate_ticket',
-      'acknowledge_ticket', 'reopen_ticket', 'view_dashboard', 'view_reports',
-    ],
-  };
-
-  const engineerRole: RoleConfig = {
-    role: 'engineer',
-    permissions: ['create_ticket', 'resolve_ticket', 'view_dashboard'],
-  };
-
-  const userRole: RoleConfig = {
-    role: 'user',
-    permissions: ['create_ticket', 'acknowledge_ticket', 'reopen_ticket'],
-  };
-
-  saveRoleConfigs([adminRole, managerRole, engineerRole, userRole]);
+  saveRoleConfigs([adminRole]);
 
   const admin: AppUser = {
     id: 'user-1',
@@ -63,6 +41,17 @@ export function seedIfNeeded() {
   };
 
   saveUsers([admin]);
+
+  const group: Group = {
+    id: 'group-1',
+    name: 'Default Support Group',
+    siteIds: ['site-1'],
+    description: 'Default support group for Main Office',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
+  saveGroups([group]);
+  addGroupMember({ groupId: 'group-1', userId: 'user-1' });
 
   saveCompany({ companyName: 'Ticket Management System', logoDataUrl: null });
 
