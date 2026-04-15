@@ -1,4 +1,4 @@
-import type { Site, Category, CompanyProfile, RoleConfig, AppUser, Ticket, AuditEntry, AppRole, Permission } from '@/types';
+import type { Site, Category, CompanyProfile, RoleConfig, AppUser, Ticket, AuditEntry, AppRole, Permission, Group, GroupMember } from '@/types';
 
 const KEYS = {
   sites: 'tms_sites',
@@ -8,6 +8,8 @@ const KEYS = {
   users: 'tms_users',
   tickets: 'tms_tickets',
   audit: 'tms_audit',
+  groups: 'tms_groups',
+  groupMembers: 'tms_group_members',
   seeded: 'tms_seeded',
 };
 
@@ -56,6 +58,32 @@ export const saveUsers = (u: AppUser[]) => set(KEYS.users, u);
 export const addUser = (u: AppUser) => { const all = getUsers(); all.push(u); saveUsers(all); };
 export const updateUser = (u: AppUser) => { saveUsers(getUsers().map(x => x.id === u.id ? u : x)); };
 export const deleteUser = (id: string) => { saveUsers(getUsers().filter(x => x.id !== id)); };
+
+// --- Groups ---
+export const getGroups = (): Group[] => get(KEYS.groups, []);
+export const saveGroups = (g: Group[]) => set(KEYS.groups, g);
+export const addGroup = (g: Group) => { const all = getGroups(); all.push(g); saveGroups(all); };
+export const updateGroup = (g: Group) => { saveGroups(getGroups().map(x => x.id === g.id ? g : x)); };
+
+// --- Group Members ---
+export const getGroupMembers = (): GroupMember[] => get(KEYS.groupMembers, []);
+export const saveGroupMembers = (m: GroupMember[]) => set(KEYS.groupMembers, m);
+export const addGroupMember = (m: GroupMember) => {
+  const all = getGroupMembers();
+  if (!all.find(x => x.groupId === m.groupId && x.userId === m.userId)) {
+    all.push(m);
+    saveGroupMembers(all);
+  }
+};
+export const removeGroupMember = (groupId: string, userId: string) => {
+  saveGroupMembers(getGroupMembers().filter(x => !(x.groupId === groupId && x.userId === userId)));
+};
+export const getGroupUsers = (groupId: string): string[] => {
+  return getGroupMembers().filter(m => m.groupId === groupId).map(m => m.userId);
+};
+export const getUserGroups = (userId: string): string[] => {
+  return getGroupMembers().filter(m => m.userId === userId).map(m => m.groupId);
+};
 
 // --- Tickets ---
 export const getTickets = (): Ticket[] => get(KEYS.tickets, []);

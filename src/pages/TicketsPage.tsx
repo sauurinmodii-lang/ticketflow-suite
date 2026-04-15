@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { getTickets, addTicket, updateTicket, getSites, getCategories, getUsers, getRolePermissions } from '@/store/dataStore';
+import { getTickets, addTicket, updateTicket, getSites, getCategories, getUsers, getGroups, getGroupUsers, getRolePermissions } from '@/store/dataStore';
 import { logAudit } from '@/lib/audit';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -33,20 +33,19 @@ export default function TicketsPage() {
   const sites = getSites().filter(s => s.isActive);
   const categories = getCategories().filter(c => c.isActive);
   const allUsers = getUsers().filter(u => u.isActive);
+  const allGroups = getGroups().filter(g => g.isActive);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<Ticket | null>(null);
   const [allocateOpen, setAllocateOpen] = useState(false);
   const [allocateTicketId, setAllocateTicketId] = useState<string | null>(null);
-  const [allocateSiteId, setAllocateSiteId] = useState('');
-  const [allocateUserId, setAllocateUserId] = useState('');
+  const [allocateGroupId, setAllocateGroupId] = useState('');
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveTicketId, setResolveTicketId] = useState<string | null>(null);
   const [resolveNotes, setResolveNotes] = useState('');
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkSiteId, setBulkSiteId] = useState('');
-  const [bulkUserId, setBulkUserId] = useState('');
+  const [bulkGroupId, setBulkGroupId] = useState('');
   const [bulkOpen, setBulkOpen] = useState(false);
 
   const [form, setForm] = useState({ title: '', description: '', categoryId: '', siteId: currentUser?.siteId || '', priority: 'Medium' as TicketPriority });
@@ -54,14 +53,8 @@ export default function TicketsPage() {
 
   const refresh = () => { setTickets(getTickets()); setSelectedIds(new Set()); };
 
-  // Smart filter: users at selected site with resolve permission
-  const getAssignableUsers = (siteId: string) => {
-    return allUsers.filter(u => {
-      if (u.siteId !== siteId) return false;
-      const perms = getRolePermissions(u.role);
-      return perms.includes('resolve_ticket') || u.role === 'admin';
-    });
-  };
+  // Groups relevant to a ticket's site
+  const getGroupsForSite = (siteId: string) => allGroups.filter(g => g.siteIds.includes(siteId));
 
   // Bulk assign visibility: only when selected tickets are all Open
   const selectedOpenTickets = useMemo(() => {
@@ -87,6 +80,7 @@ export default function TicketsPage() {
       priority: form.priority,
       status: 'Open',
       createdBy: currentUser!.id,
+      assignedGroupId: null,
       assignedTo: null,
       resolvedBy: null,
       resolutionNotes: null,
@@ -110,10 +104,12 @@ export default function TicketsPage() {
   };
 
   const handleAllocate = () => {
-    if (!allocateUserId) return;
+    if (!allocateGroupId) return;
     const ticket = tickets.find(t => t.id === allocateTicketId);
     if (!ticket) return;
-    changeStatus(ticket, 'Allocated', { assignedTo: allocateUserId });
+    const groupName = allGroups.find(g => g.id === allocateGroupId)?.name || '';
+    changeStatus(ticket, 'Allocated', { assignedGroupId: allocateGroupId, assignedTo: null });
+    logAudit({ entityType: 'Ticket', entityId: ticket.id, action: 'Group Assigned', userId: currentUser!.id, userName: currentUser!.fullName, newValue: groupName });
     setAllocateOpen(false);
   };
 
@@ -126,13 +122,34 @@ export default function TicketsPage() {
   };
 
   const handleBulkAssign = () => {
-    if (!bulkUserId) return;
+    if (!bulkGroupId) return;
     selectedOpenTickets.forEach(t => {
-      changeStatus(t, 'Allocated', { assignedTo: bulkUserId });
+      changeStatus(t, 'Allocated', { assignedGroupId: bulkGroupId, assignedTo: null });
     });
     setBulkOpen(false);
-    setBulkSiteId('');
-    setBulkUserId('');
+    setBulkGroupId('');
+  };
+
+  const handleReopen = (ticket: Ticket) => {
+    // Auto re-assign the same group
+    changeStatus(ticket, 'Reopened', { assignedTo: null, resolvedBy: null, resolutionNotes: null });
+  };
+
+  // Check if current user is a member of the ticket's assigned group
+  const isUserInTicketGroup = (ticket: Ticket) => {
+    if (!ticket.assignedGroupId || !currentUser) return false;
+    const memberIds = getGroupUsers(ticket.assignedGroupId);
+    return memberIds.includes(currentUser.id);
+  };
+
+  // "Start Work" — user must be in the assigned group
+  const canStartWork = (ticket: Ticket) => {
+    return (ticket.status === 'Allocated' || ticket.status === 'Reopened') && isUserInTicketGroup(ticket);
+  };
+
+  // Can change group assignment before work starts
+  const canReassignGroup = (ticket: Ticket) => {
+    return (ticket.status === 'Allocated' || ticket.status === 'Reopened') && hasPermission('allocate_ticket');
   };
 
   const toggleSelect = (id: string) => {
@@ -144,6 +161,7 @@ export default function TicketsPage() {
   const getSiteName = (id: string) => getSites().find(s => s.id === id)?.name || '-';
   const getCatName = (id: string) => getCategories().find(c => c.id === id)?.name || '-';
   const getUserName = (id: string | null) => id ? getUsers().find(u => u.id === id)?.fullName || '-' : '-';
+  const getGroupName = (id: string | null) => id ? allGroups.find(g => g.id === id)?.name || '-' : '-';
 
   return (
     <div className="space-y-6">
@@ -151,7 +169,7 @@ export default function TicketsPage() {
         <h1 className="text-2xl font-bold">Tickets</h1>
         <div className="flex gap-2">
           {showBulkAssign && (
-            <Button variant="outline" onClick={() => { setBulkSiteId(currentUser?.siteId || ''); setBulkOpen(true); }}>
+            <Button variant="outline" onClick={() => { setBulkGroupId(''); setBulkOpen(true); }}>
               <UserCheck className="h-4 w-4 mr-2" /> Bulk Assign ({selectedOpenTickets.length})
             </Button>
           )}
@@ -167,11 +185,11 @@ export default function TicketsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10"></TableHead>
-                <TableHead>Ticket #</TableHead><TableHead>Title</TableHead><TableHead>Site</TableHead><TableHead>Category</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead>Assigned</TableHead><TableHead className="w-36">Actions</TableHead>
+                <TableHead>Ticket #</TableHead><TableHead>Title</TableHead><TableHead>Site</TableHead><TableHead>Category</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead>Group</TableHead><TableHead>Working By</TableHead><TableHead className="w-44">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tickets.length === 0 && <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No tickets found</TableCell></TableRow>}
+              {tickets.length === 0 && <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No tickets found</TableCell></TableRow>}
               {tickets.map(t => (
                 <TableRow key={t.id} className="cursor-pointer" onClick={() => setDetailTicket(t)}>
                   <TableCell onClick={e => e.stopPropagation()}>
@@ -183,17 +201,21 @@ export default function TicketsPage() {
                   <TableCell>{getCatName(t.categoryId)}</TableCell>
                   <TableCell><Badge variant="outline">{t.priority}</Badge></TableCell>
                   <TableCell><Badge className={statusColors[t.status]}>{t.status}</Badge></TableCell>
-                  <TableCell>{getUserName(t.assignedTo)}</TableCell>
+                  <TableCell className="text-sm">{getGroupName(t.assignedGroupId)}</TableCell>
+                  <TableCell className="text-sm">{getUserName(t.assignedTo)}</TableCell>
                   <TableCell onClick={e => e.stopPropagation()}>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {t.status === 'Open' && hasPermission('approve_ticket') && (
                         <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'Approved')}>Approve</Button>
                       )}
                       {t.status === 'Approved' && hasPermission('allocate_ticket') && (
-                        <Button size="sm" variant="ghost" onClick={() => { setAllocateTicketId(t.id); setAllocateSiteId(t.siteId); setAllocateUserId(''); setAllocateOpen(true); }}>Allocate</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setAllocateTicketId(t.id); setAllocateGroupId(t.assignedGroupId || ''); setAllocateOpen(true); }}>Assign Group</Button>
                       )}
-                      {t.status === 'Allocated' && t.assignedTo === currentUser?.id && (
-                        <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'In Progress')}><Play className="h-3 w-3 mr-1" /> Start</Button>
+                      {canReassignGroup(t) && (
+                        <Button size="sm" variant="ghost" onClick={() => { setAllocateTicketId(t.id); setAllocateGroupId(t.assignedGroupId || ''); setAllocateOpen(true); }}>Change Group</Button>
+                      )}
+                      {canStartWork(t) && (
+                        <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'In Progress', { assignedTo: currentUser!.id })}><Play className="h-3 w-3 mr-1" /> Start</Button>
                       )}
                       {t.status === 'In Progress' && t.assignedTo === currentUser?.id && hasPermission('resolve_ticket') && (
                         <Button size="sm" variant="ghost" onClick={() => { setResolveTicketId(t.id); setResolveNotes(''); setResolveOpen(true); }}><CheckCircle className="h-3 w-3 mr-1" /> Resolve</Button>
@@ -202,7 +224,7 @@ export default function TicketsPage() {
                         <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'Acknowledged')}>Ack</Button>
                       )}
                       {t.status === 'Resolved' && hasPermission('reopen_ticket') && (
-                        <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'Reopened')}><RotateCcw className="h-3 w-3 mr-1" /> Reopen</Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleReopen(t)}><RotateCcw className="h-3 w-3 mr-1" /> Reopen</Button>
                       )}
                     </div>
                   </TableCell>
@@ -250,31 +272,30 @@ export default function TicketsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Allocate Dialog */}
+      {/* Allocate Group Dialog */}
       <Dialog open={allocateOpen} onOpenChange={setAllocateOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Allocate Ticket</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Assign Group to Ticket</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Filter by Site</label>
-              <Select value={allocateSiteId} onValueChange={v => { setAllocateSiteId(v); setAllocateUserId(''); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Assign To (users with Resolve permission at selected site)</label>
-              <Select value={allocateUserId} onValueChange={setAllocateUserId}>
-                <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
-                <SelectContent>
-                  {getAssignableUsers(allocateSiteId).length === 0 && <SelectItem value="_none" disabled>No eligible users at this site</SelectItem>}
-                  {getAssignableUsers(allocateSiteId).map(u => <SelectItem key={u.id} value={u.id}>{u.fullName} ({u.role})</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium">Select Group</label>
+              {(() => {
+                const ticket = tickets.find(t => t.id === allocateTicketId);
+                const groups = ticket ? getGroupsForSite(ticket.siteId) : [];
+                return (
+                  <Select value={allocateGroupId} onValueChange={setAllocateGroupId}>
+                    <SelectTrigger><SelectValue placeholder="Select group" /></SelectTrigger>
+                    <SelectContent>
+                      {groups.length === 0 && <SelectItem value="_none" disabled>No groups for this site</SelectItem>}
+                      {groups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                );
+              })()}
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setAllocateOpen(false)}>Cancel</Button>
-              <Button onClick={handleAllocate} disabled={!allocateUserId}>Assign</Button>
+              <Button onClick={handleAllocate} disabled={!allocateGroupId}>Assign</Button>
             </div>
           </div>
         </DialogContent>
@@ -300,24 +321,17 @@ export default function TicketsPage() {
           <DialogHeader><DialogTitle>Bulk Assign {selectedOpenTickets.length} Ticket(s)</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Site</label>
-              <Select value={bulkSiteId} onValueChange={v => { setBulkSiteId(v); setBulkUserId(''); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Assign To</label>
-              <Select value={bulkUserId} onValueChange={setBulkUserId}>
-                <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
+              <label className="text-sm font-medium">Select Group</label>
+              <Select value={bulkGroupId} onValueChange={setBulkGroupId}>
+                <SelectTrigger><SelectValue placeholder="Select group" /></SelectTrigger>
                 <SelectContent>
-                  {getAssignableUsers(bulkSiteId).map(u => <SelectItem key={u.id} value={u.id}>{u.fullName} ({u.role})</SelectItem>)}
+                  {allGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setBulkOpen(false)}>Cancel</Button>
-              <Button onClick={handleBulkAssign} disabled={!bulkUserId}>Assign All</Button>
+              <Button onClick={handleBulkAssign} disabled={!bulkGroupId}>Assign All</Button>
             </div>
           </div>
         </DialogContent>
@@ -336,7 +350,8 @@ export default function TicketsPage() {
                   <div><span className="text-muted-foreground">Site:</span> {getSiteName(detailTicket.siteId)}</div>
                   <div><span className="text-muted-foreground">Category:</span> {getCatName(detailTicket.categoryId)}</div>
                   <div><span className="text-muted-foreground">Created By:</span> {getUserName(detailTicket.createdBy)}</div>
-                  <div><span className="text-muted-foreground">Assigned To:</span> {getUserName(detailTicket.assignedTo)}</div>
+                  <div><span className="text-muted-foreground">Group:</span> {getGroupName(detailTicket.assignedGroupId)}</div>
+                  <div><span className="text-muted-foreground">Working By:</span> {getUserName(detailTicket.assignedTo)}</div>
                 </div>
                 {detailTicket.description && <div><span className="text-muted-foreground">Description:</span><p className="mt-1">{detailTicket.description}</p></div>}
                 {detailTicket.resolutionNotes && <div><span className="text-muted-foreground">Resolution:</span><p className="mt-1">{detailTicket.resolutionNotes}</p></div>}
