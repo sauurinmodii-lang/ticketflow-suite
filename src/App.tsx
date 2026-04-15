@@ -16,6 +16,8 @@ import CompanyPage from "@/pages/CompanyPage";
 import RoleAccessPage from "@/pages/RoleAccessPage";
 import AuditPage from "@/pages/AuditPage";
 import ReportsPage from "@/pages/ReportsPage";
+import GroupMasterPage from "@/pages/GroupMasterPage";
+import GroupAssignPage from "@/pages/GroupAssignPage";
 import NotFound from "@/pages/NotFound";
 
 seedIfNeeded();
@@ -50,6 +52,8 @@ const App = () => (
               <Route path="/users" element={<UsersPage />} />
               <Route path="/sites" element={<SitesPage />} />
               <Route path="/categories" element={<CategoriesPage />} />
+              <Route path="/groups" element={<GroupMasterPage />} />
+              <Route path="/group-assign" element={<GroupAssignPage />} />
               <Route path="/company" element={<CompanyPage />} />
               <Route path="/role-access" element={<RoleAccessPage />} />
               <Route path="/audit" element={<AuditPage />} />

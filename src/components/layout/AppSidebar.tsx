@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Ticket, Users, Building2, FolderCog, Shield, ScrollText,
-  BarChart3, Settings, LogOut
+  BarChart3, Settings, LogOut, UsersRound, UserCog
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getCompany } from '@/store/dataStore';
@@ -13,6 +13,8 @@ const navItems = [
   { to: '/users', label: 'Users', icon: Users, perm: 'manage_users' as const },
   { to: '/sites', label: 'Site Master', icon: Building2, perm: 'manage_masters' as const },
   { to: '/categories', label: 'Category Master', icon: FolderCog, perm: 'manage_masters' as const },
+  { to: '/groups', label: 'Group Master', icon: UsersRound, perm: 'manage_masters' as const },
+  { to: '/group-assign', label: 'Group Assignment', icon: UserCog, perm: 'manage_masters' as const },
   { to: '/role-access', label: 'Role Access Config', icon: Shield, perm: 'manage_roles' as const },
   { to: '/audit', label: 'Audit Trail', icon: ScrollText, perm: 'view_audit' as const },
   { to: '/reports', label: 'Reports', icon: BarChart3, perm: 'view_reports' as const },
