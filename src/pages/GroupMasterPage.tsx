@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { getGroups, addGroup, updateGroup, getSites } from '@/store/dataStore';
 import { logAudit } from '@/lib/audit';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,31 +11,51 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
+import ReasonDialog from '@/components/shared/ReasonDialog';
+import Pagination, { paginateItems } from '@/components/shared/Pagination';
 import { Plus, Pencil } from 'lucide-react';
 import type { Group } from '@/types';
+
+const PAGE_SIZE = 10;
 
 export default function GroupMasterPage() {
   const { currentUser } = useAuth();
   const [groups, setGroups] = useState(getGroups);
   const sites = getSites().filter(s => s.isActive);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Group | null>(null);
   const [form, setForm] = useState({ name: '', description: '', siteIds: [] as string[] });
-  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [pendingPayload, setPendingPayload] = useState<Group | null>(null);
+
+  const [reasonTarget, setReasonTarget] = useState<{ type: 'update' | 'toggle'; group: Group; payload?: Group } | null>(null);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [search, setSearch] = useState('');
 
   const refresh = () => setGroups(getGroups());
+
+  const filteredGroups = useMemo(() => {
+    if (!search.trim()) return groups;
+    const q = search.toLowerCase();
+    return groups.filter(g => g.name.toLowerCase().includes(q) || g.description.toLowerCase().includes(q));
+  }, [groups, search]);
+
+  const pagedGroups = paginateItems(filteredGroups, page, pageSize);
 
   const openCreate = () => {
     setEditing(null);
     setForm({ name: '', description: '', siteIds: [] });
-    setError('');
+    setFormError('');
     setDialogOpen(true);
   };
 
   const openEdit = (g: Group) => {
     setEditing(g);
     setForm({ name: g.name, description: g.description, siteIds: [...g.siteIds] });
-    setError('');
+    setFormError('');
     setDialogOpen(true);
   };
 
@@ -49,14 +69,15 @@ export default function GroupMasterPage() {
   };
 
   const handleSave = () => {
-    setError('');
-    if (!form.name.trim()) { setError('Group name is required'); return; }
-    if (form.siteIds.length === 0) { setError('At least one site must be selected'); return; }
+    setFormError('');
+    if (!form.name.trim()) { setFormError('Group name is required'); return; }
+    if (form.siteIds.length === 0) { setFormError('At least one site must be selected'); return; }
 
     if (editing) {
-      const updated: Group = { ...editing, name: form.name.trim(), description: form.description.trim(), siteIds: form.siteIds };
-      updateGroup(updated);
-      logAudit({ entityType: 'Group', entityId: updated.id, action: 'Updated', userId: currentUser!.id, userName: currentUser!.fullName, oldValue: editing.name, newValue: updated.name });
+      const payload: Group = { ...editing, name: form.name.trim(), description: form.description.trim(), siteIds: form.siteIds };
+      setPendingPayload(payload);
+      setDialogOpen(false);
+      setReasonTarget({ type: 'update', group: editing, payload });
     } else {
       const g: Group = {
         id: crypto.randomUUID(),
@@ -68,15 +89,30 @@ export default function GroupMasterPage() {
       };
       addGroup(g);
       logAudit({ entityType: 'Group', entityId: g.id, action: 'Created', userId: currentUser!.id, userName: currentUser!.fullName, newValue: g.name });
+      setDialogOpen(false);
+      refresh();
     }
-    setDialogOpen(false);
-    refresh();
   };
 
-  const toggleActive = (g: Group) => {
-    const updated = { ...g, isActive: !g.isActive };
-    updateGroup(updated);
-    logAudit({ entityType: 'Group', entityId: g.id, action: updated.isActive ? 'Activated' : 'Deactivated', userId: currentUser!.id, userName: currentUser!.fullName, newValue: String(updated.isActive) });
+  const requestToggle = (g: Group) => {
+    setReasonTarget({ type: 'toggle', group: g });
+  };
+
+  const handleReasonConfirm = (reason: string) => {
+    if (!reasonTarget) return;
+    const { type, group, payload } = reasonTarget;
+
+    if (type === 'update' && payload) {
+      updateGroup(payload);
+      logAudit({ entityType: 'Group', entityId: group.id, action: 'Updated', userId: currentUser!.id, userName: currentUser!.fullName, oldValue: group.name, newValue: payload.name, remarks: reason });
+    } else if (type === 'toggle') {
+      const updated = { ...group, isActive: !group.isActive };
+      updateGroup(updated);
+      logAudit({ entityType: 'Group', entityId: group.id, action: updated.isActive ? 'Activated' : 'Deactivated', userId: currentUser!.id, userName: currentUser!.fullName, remarks: reason });
+    }
+
+    setReasonTarget(null);
+    setPendingPayload(null);
     refresh();
   };
 
@@ -92,6 +128,13 @@ export default function GroupMasterPage() {
         <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" /> Add Group</Button>
       </div>
 
+      <Input
+        placeholder="Search groups..."
+        value={search}
+        onChange={e => { setSearch(e.target.value); setPage(1); }}
+        className="max-w-sm"
+      />
+
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -105,10 +148,10 @@ export default function GroupMasterPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {groups.length === 0 && (
+              {pagedGroups.length === 0 && (
                 <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No groups found</TableCell></TableRow>
               )}
-              {groups.map(g => (
+              {pagedGroups.map(g => (
                 <TableRow key={g.id}>
                   <TableCell className="font-medium">{g.name}</TableCell>
                   <TableCell className="text-sm">{getSiteNames(g.siteIds)}</TableCell>
@@ -119,13 +162,14 @@ export default function GroupMasterPage() {
                   <TableCell>
                     <div className="flex gap-2 items-center">
                       <Button size="sm" variant="ghost" onClick={() => openEdit(g)}><Pencil className="h-3 w-3" /></Button>
-                      <Switch checked={g.isActive} onCheckedChange={() => toggleActive(g)} />
+                      <Switch checked={g.isActive} onCheckedChange={() => requestToggle(g)} />
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          <Pagination total={filteredGroups.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={s => { setPageSize(s); setPage(1); }} />
         </CardContent>
       </Card>
 
@@ -133,7 +177,7 @@ export default function GroupMasterPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? 'Edit Group' : 'Create Group'}</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {error && <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">{error}</div>}
+            {formError && <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">{formError}</div>}
             <div className="space-y-2">
               <label className="text-sm font-medium">Group Name *</label>
               <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
@@ -161,6 +205,18 @@ export default function GroupMasterPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ReasonDialog
+        open={!!reasonTarget}
+        title={reasonTarget?.type === 'toggle'
+          ? (reasonTarget.group.isActive ? 'Deactivate Group' : 'Activate Group')
+          : 'Update Group'}
+        description={`Please provide a reason for ${reasonTarget?.type === 'toggle'
+          ? (reasonTarget?.group.isActive ? 'deactivating' : 'activating')
+          : 'updating'} group "${reasonTarget?.group.name}".`}
+        onConfirm={handleReasonConfirm}
+        onCancel={() => { setReasonTarget(null); setPendingPayload(null); }}
+      />
     </div>
   );
 }

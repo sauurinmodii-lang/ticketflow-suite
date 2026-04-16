@@ -9,6 +9,7 @@ export function logAudit(params: {
   userName: string;
   oldValue?: string | null;
   newValue?: string | null;
+  remarks?: string | null;
 }) {
   const entry: AuditEntry = {
     id: crypto.randomUUID(),
@@ -19,6 +20,7 @@ export function logAudit(params: {
     userName: params.userName,
     oldValue: params.oldValue ?? null,
     newValue: params.newValue ?? null,
+    remarks: params.remarks ?? null,
     timestamp: new Date().toISOString(),
   };
   addAuditEntry(entry);

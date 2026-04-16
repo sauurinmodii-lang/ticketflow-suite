@@ -13,7 +13,7 @@ import UsersPage from "@/pages/UsersPage";
 import SitesPage from "@/pages/SitesPage";
 import CategoriesPage from "@/pages/CategoriesPage";
 import CompanyPage from "@/pages/CompanyPage";
-import RoleAccessPage from "@/pages/RoleAccessPage";
+import RoleMasterPage from "@/pages/RoleMasterPage";
 import AuditPage from "@/pages/AuditPage";
 import ReportsPage from "@/pages/ReportsPage";
 import GroupMasterPage from "@/pages/GroupMasterPage";
@@ -55,7 +55,7 @@ const App = () => (
               <Route path="/groups" element={<GroupMasterPage />} />
               <Route path="/group-assign" element={<GroupAssignPage />} />
               <Route path="/company" element={<CompanyPage />} />
-              <Route path="/role-access" element={<RoleAccessPage />} />
+              <Route path="/roles" element={<RoleMasterPage />} />
               <Route path="/audit" element={<AuditPage />} />
               <Route path="/reports" element={<ReportsPage />} />
             </Route>

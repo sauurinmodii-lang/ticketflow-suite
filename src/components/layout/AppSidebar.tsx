@@ -1,10 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
-import {
-  LayoutDashboard, Ticket, Users, Building2, FolderCog, Shield, ScrollText,
-  BarChart3, Settings, LogOut, UsersRound, UserCog
-} from 'lucide-react';
+import { LayoutDashboard, Ticket, Users, Building2, FolderCog, Shield, ScrollText, ChartBar as BarChart3, Settings, LogOut, UsersRound, UserCog } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getCompany } from '@/store/dataStore';
+import { getCompany, getCustomRoles } from '@/store/dataStore';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -15,7 +12,7 @@ const navItems = [
   { to: '/categories', label: 'Category Master', icon: FolderCog, perm: 'manage_masters' as const },
   { to: '/groups', label: 'Group Master', icon: UsersRound, perm: 'manage_masters' as const },
   { to: '/group-assign', label: 'Group Assignment', icon: UserCog, perm: 'manage_masters' as const },
-  { to: '/role-access', label: 'Role Access Config', icon: Shield, perm: 'manage_roles' as const },
+  { to: '/roles', label: 'Role Master', icon: Shield, perm: 'manage_roles' as const },
   { to: '/audit', label: 'Audit Trail', icon: ScrollText, perm: 'view_audit' as const },
   { to: '/reports', label: 'Reports', icon: BarChart3, perm: 'view_reports' as const },
   { to: '/company', label: 'Company Profile', icon: Settings, perm: 'manage_masters' as const },
@@ -25,6 +22,7 @@ export default function AppSidebar() {
   const { currentUser, logout, hasPermission } = useAuth();
   const location = useLocation();
   const company = getCompany();
+  const roleName = currentUser ? (getCustomRoles().find(r => r.id === currentUser.role)?.name || currentUser.role) : '';
 
   return (
     <aside className="flex flex-col w-60 min-h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
@@ -58,7 +56,7 @@ export default function AppSidebar() {
 
       <div className="border-t border-sidebar-border p-4">
         <div className="text-xs text-sidebar-foreground/60 mb-2 truncate">
-          {currentUser?.fullName} ({currentUser?.role})
+          {currentUser?.fullName} ({roleName})
         </div>
         <button
           onClick={logout}

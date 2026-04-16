@@ -1,16 +1,17 @@
-import type { Site, Category, CompanyProfile, RoleConfig, AppUser, Ticket, AuditEntry, AppRole, Permission, Group, GroupMember } from '@/types';
+import type { Site, Category, CompanyProfile, RoleConfig, AppUser, Ticket, AuditEntry, AppRole, Permission, Group, GroupMember, CustomRole } from '@/types';
+import { expandPermissions } from '@/types';
 
 const KEYS = {
   sites: 'tms_sites',
   categories: 'tms_categories',
   company: 'tms_company',
-  roles: 'tms_roles',
+  customRoles: 'tms_custom_roles',
   users: 'tms_users',
   tickets: 'tms_tickets',
   audit: 'tms_audit',
   groups: 'tms_groups',
   groupMembers: 'tms_group_members',
-  seeded: 'tms_seeded',
+  seeded: 'tms_seeded_v2',
 };
 
 function get<T>(key: string, fallback: T): T {
@@ -44,13 +45,28 @@ export const deleteCategory = (id: string) => { saveCategories(getCategories().f
 export const getCompany = (): CompanyProfile => get(KEYS.company, { companyName: 'Ticket Management System', logoDataUrl: null });
 export const saveCompany = (c: CompanyProfile) => set(KEYS.company, c);
 
-// --- Roles ---
-export const getRoleConfigs = (): RoleConfig[] => get(KEYS.roles, []);
-export const saveRoleConfigs = (r: RoleConfig[]) => set(KEYS.roles, r);
-export const getRolePermissions = (role: AppRole): Permission[] => {
-  const cfg = getRoleConfigs().find(r => r.role === role);
-  return cfg?.permissions ?? [];
+// --- Custom Roles ---
+export const getCustomRoles = (): CustomRole[] => get(KEYS.customRoles, []);
+export const saveCustomRoles = (r: CustomRole[]) => set(KEYS.customRoles, r);
+export const addCustomRole = (r: CustomRole) => { const all = getCustomRoles(); all.push(r); saveCustomRoles(all); };
+export const updateCustomRole = (r: CustomRole) => { saveCustomRoles(getCustomRoles().map(x => x.id === r.id ? r : x)); };
+export const deleteCustomRole = (id: string) => { saveCustomRoles(getCustomRoles().filter(x => x.id !== id)); };
+
+export const getRolePermissions = (roleId: AppRole): Permission[] => {
+  const role = getCustomRoles().find(r => r.id === roleId);
+  if (!role) return [];
+  return expandPermissions(role.permissions);
 };
+
+export const getActiveRoles = (): CustomRole[] => getCustomRoles().filter(r => r.isActive);
+
+export const countUsersWithRole = (roleId: AppRole): number =>
+  getUsers().filter(u => u.role === roleId).length;
+
+// Legacy shim for RoleAccessPage
+export const getRoleConfigs = (): RoleConfig[] =>
+  getCustomRoles().map(r => ({ role: r.id, permissions: expandPermissions(r.permissions) }));
+export const saveRoleConfigs = (_r: RoleConfig[]) => {};
 
 // --- Users ---
 export const getUsers = (): AppUser[] => get(KEYS.users, []);
@@ -78,12 +94,10 @@ export const addGroupMember = (m: GroupMember) => {
 export const removeGroupMember = (groupId: string, userId: string) => {
   saveGroupMembers(getGroupMembers().filter(x => !(x.groupId === groupId && x.userId === userId)));
 };
-export const getGroupUsers = (groupId: string): string[] => {
-  return getGroupMembers().filter(m => m.groupId === groupId).map(m => m.userId);
-};
-export const getUserGroups = (userId: string): string[] => {
-  return getGroupMembers().filter(m => m.userId === userId).map(m => m.groupId);
-};
+export const getGroupUsers = (groupId: string): string[] =>
+  getGroupMembers().filter(m => m.groupId === groupId).map(m => m.userId);
+export const getUserGroups = (userId: string): string[] =>
+  getGroupMembers().filter(m => m.userId === userId).map(m => m.groupId);
 
 // --- Tickets ---
 export const getTickets = (): Ticket[] => get(KEYS.tickets, []);

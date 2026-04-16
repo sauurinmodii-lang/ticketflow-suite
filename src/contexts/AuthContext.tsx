@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import type { AppUser, Permission } from '@/types';
 import { getUsers, getRolePermissions } from '@/store/dataStore';
 
@@ -38,9 +38,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = useCallback((perm: Permission) => {
     if (!currentUser) return false;
-    if (currentUser.role === 'admin') return true;
-    return permissions.includes(perm);
-  }, [currentUser, permissions]);
+    const perms = getRolePermissions(currentUser.role);
+    return perms.includes(perm);
+  }, [currentUser]);
 
   return (
     <AuthContext.Provider value={{ currentUser, login, logout, hasPermission, permissions }}>
