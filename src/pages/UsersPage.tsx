@@ -239,11 +239,11 @@ export default function UsersPage() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Group <span className="text-xs text-muted-foreground">(optional)</span></label>
-                <Select value={form.groupId || ''} onValueChange={v => setForm({ ...form, groupId: v })} disabled={!form.siteId}>
+                <Select value={form.groupId || '_none_group'} onValueChange={v => setForm({ ...form, groupId: v === '_none_group' ? '' : v })} disabled={!form.siteId}>
                   <SelectTrigger><SelectValue placeholder={form.siteId ? 'Select group...' : 'Select site first'} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No Group</SelectItem>
-                    {siteGroups.length === 0 && form.siteId && <SelectItem value="_none" disabled>No groups for this site</SelectItem>}
+                    <SelectItem value="_none_group">No Group</SelectItem>
+                    {siteGroups.length === 0 && form.siteId && <SelectItem value="_no_site_groups" disabled>No groups for this site</SelectItem>}
                     {siteGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
