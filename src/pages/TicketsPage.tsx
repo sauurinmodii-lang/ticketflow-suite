@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
-import { getTickets, addTicket, updateTicket, getSites, getCategories, getUsers, getGroups, getGroupUsers, getRolePermissions } from '@/store/dataStore';
+import { getTickets, addTicket, updateTicket, getSites, getCategories, getUsers, getGroups, getGroupUsers } from '@/store/dataStore';
 import { logAudit } from '@/lib/audit';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTicketAccess } from '@/hooks/useTicketAccess';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,14 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Play, CheckCircle, RotateCcw, UserCheck } from 'lucide-react';
+import Pagination, { paginateItems } from '@/components/shared/Pagination';
+import { Plus, Play, CircleCheck as CheckCircle, RotateCcw, UserCheck, Filter, X } from 'lucide-react';
 import type { Ticket, TicketPriority, TicketStatus } from '@/types';
 
 const PRIORITIES: TicketPriority[] = ['Low', 'Medium', 'High', 'Critical'];
+const STATUSES: TicketStatus[] = ['Open', 'Allocated', 'In Progress', 'Resolved', 'Acknowledged', 'Reopened', 'Closed'];
 
 const statusColors: Record<string, string> = {
   Open: 'bg-info text-info-foreground',
-  Approved: 'bg-primary text-primary-foreground',
   Allocated: 'bg-warning text-warning-foreground',
   'In Progress': 'bg-warning text-warning-foreground',
   Resolved: 'bg-success text-success-foreground',
@@ -27,13 +29,17 @@ const statusColors: Record<string, string> = {
   Reopened: 'bg-destructive text-destructive-foreground',
 };
 
+const PAGE_SIZE = 10;
+
 export default function TicketsPage() {
   const { currentUser, hasPermission } = useAuth();
-  const [tickets, setTickets] = useState(getTickets);
+  const [rawTickets, setRawTickets] = useState(getTickets);
   const sites = getSites().filter(s => s.isActive);
   const categories = getCategories().filter(c => c.isActive);
   const allUsers = getUsers().filter(u => u.isActive);
   const allGroups = getGroups().filter(g => g.isActive);
+
+  const tickets = useTicketAccess(rawTickets);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<Ticket | null>(null);
@@ -51,17 +57,52 @@ export default function TicketsPage() {
   const [form, setForm] = useState({ title: '', description: '', categoryId: '', siteId: currentUser?.siteId || '', priority: 'Medium' as TicketPriority });
   const [error, setError] = useState('');
 
-  const refresh = () => { setTickets(getTickets()); setSelectedIds(new Set()); };
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
 
-  // Groups relevant to a ticket's site
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
+  const [filterSite, setFilterSite] = useState('all');
+  const [filterGroup, setFilterGroup] = useState('all');
+  const [filterSearch, setFilterSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const refresh = () => { setRawTickets(getTickets()); setSelectedIds(new Set()); };
+
   const getGroupsForSite = (siteId: string) => allGroups.filter(g => g.siteIds.includes(siteId));
 
-  // Bulk assign visibility: only when selected tickets are all Open
+  const filteredTickets = useMemo(() => {
+    return tickets.filter(t => {
+      if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+      if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
+      if (filterSite !== 'all' && t.siteId !== filterSite) return false;
+      if (filterGroup !== 'all' && t.assignedGroupId !== filterGroup) return false;
+      if (filterSearch.trim()) {
+        const q = filterSearch.toLowerCase();
+        if (!t.ticketNumber.toLowerCase().includes(q) && !t.title.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tickets, filterStatus, filterPriority, filterSite, filterGroup, filterSearch]);
+
+  const pagedTickets = paginateItems(filteredTickets, page, pageSize);
+
   const selectedOpenTickets = useMemo(() => {
     if (selectedIds.size === 0) return [];
-    return tickets.filter(t => selectedIds.has(t.id) && t.status === 'Open');
-  }, [selectedIds, tickets]);
+    return filteredTickets.filter(t => selectedIds.has(t.id) && t.status === 'Open');
+  }, [selectedIds, filteredTickets]);
   const showBulkAssign = selectedOpenTickets.length > 0 && selectedOpenTickets.length === selectedIds.size;
+
+  const hasActiveFilters = filterStatus !== 'all' || filterPriority !== 'all' || filterSite !== 'all' || filterGroup !== 'all' || filterSearch.trim();
+
+  const clearFilters = () => {
+    setFilterStatus('all');
+    setFilterPriority('all');
+    setFilterSite('all');
+    setFilterGroup('all');
+    setFilterSearch('');
+    setPage(1);
+  };
 
   const handleCreate = () => {
     setError('');
@@ -105,7 +146,7 @@ export default function TicketsPage() {
 
   const handleAllocate = () => {
     if (!allocateGroupId) return;
-    const ticket = tickets.find(t => t.id === allocateTicketId);
+    const ticket = rawTickets.find(t => t.id === allocateTicketId);
     if (!ticket) return;
     const groupName = allGroups.find(g => g.id === allocateGroupId)?.name || '';
     changeStatus(ticket, 'Allocated', { assignedGroupId: allocateGroupId, assignedTo: null });
@@ -114,7 +155,7 @@ export default function TicketsPage() {
   };
 
   const handleResolve = () => {
-    const ticket = tickets.find(t => t.id === resolveTicketId);
+    const ticket = rawTickets.find(t => t.id === resolveTicketId);
     if (!ticket) return;
     changeStatus(ticket, 'Resolved', { resolvedBy: currentUser!.id, resolutionNotes: resolveNotes });
     setResolveOpen(false);
@@ -131,23 +172,19 @@ export default function TicketsPage() {
   };
 
   const handleReopen = (ticket: Ticket) => {
-    // Auto re-assign the same group
     changeStatus(ticket, 'Reopened', { assignedTo: null, resolvedBy: null, resolutionNotes: null });
   };
 
-  // Check if current user is a member of the ticket's assigned group
   const isUserInTicketGroup = (ticket: Ticket) => {
     if (!ticket.assignedGroupId || !currentUser) return false;
     const memberIds = getGroupUsers(ticket.assignedGroupId);
     return memberIds.includes(currentUser.id);
   };
 
-  // "Start Work" — user must be in the assigned group
   const canStartWork = (ticket: Ticket) => {
     return (ticket.status === 'Allocated' || ticket.status === 'Reopened') && isUserInTicketGroup(ticket);
   };
 
-  // Can change group assignment before work starts
   const canReassignGroup = (ticket: Ticket) => {
     return (ticket.status === 'Allocated' || ticket.status === 'Reopened') && hasPermission('allocate_ticket');
   };
@@ -164,33 +201,107 @@ export default function TicketsPage() {
   const getGroupName = (id: string | null) => id ? allGroups.find(g => g.id === id)?.name || '-' : '-';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold">Tickets</h1>
         <div className="flex gap-2">
-          {showBulkAssign && (
+          {showBulkAssign && hasPermission('allocate_ticket') && (
             <Button variant="outline" onClick={() => { setBulkGroupId(''); setBulkOpen(true); }}>
               <UserCheck className="h-4 w-4 mr-2" /> Bulk Assign ({selectedOpenTickets.length})
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={() => setShowFilters(v => !v)} className={hasActiveFilters ? 'border-primary text-primary' : ''}>
+            <Filter className="h-4 w-4 mr-1" /> Filters{hasActiveFilters ? ' (active)' : ''}
+          </Button>
           {hasPermission('create_ticket') && (
             <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-2" /> Create Ticket</Button>
           )}
         </div>
       </div>
 
+      {showFilters && (
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Search</label>
+                <Input placeholder="# or title..." value={filterSearch} onChange={e => { setFilterSearch(e.target.value); setPage(1); }} className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Status</label>
+                <Select value={filterStatus} onValueChange={v => { setFilterStatus(v); setPage(1); }}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    {STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Priority</label>
+                <Select value={filterPriority} onValueChange={v => { setFilterPriority(v); setPage(1); }}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Priorities</SelectItem>
+                    {PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Site</label>
+                <Select value={filterSite} onValueChange={v => { setFilterSite(v); setPage(1); }}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sites</SelectItem>
+                    {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Group</label>
+                <Select value={filterGroup} onValueChange={v => { setFilterGroup(v); setPage(1); }}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Groups</SelectItem>
+                    {allGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" className="mt-3 h-7 text-xs" onClick={clearFilters}>
+                <X className="h-3 w-3 mr-1" /> Clear Filters
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-0">
+          <div className="px-4 py-2 border-b text-sm text-muted-foreground">
+            {filteredTickets.length} ticket(s) visible
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10"></TableHead>
-                <TableHead>Ticket #</TableHead><TableHead>Title</TableHead><TableHead>Site</TableHead><TableHead>Category</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead>Group</TableHead><TableHead>Working By</TableHead><TableHead className="w-44">Actions</TableHead>
+                <TableHead>Ticket #</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead>Site</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Group</TableHead>
+                <TableHead>Working By</TableHead>
+                <TableHead className="w-44">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tickets.length === 0 && <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No tickets found</TableCell></TableRow>}
-              {tickets.map(t => (
+              {pagedTickets.length === 0 && (
+                <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No tickets found</TableCell></TableRow>
+              )}
+              {pagedTickets.map(t => (
                 <TableRow key={t.id} className="cursor-pointer" onClick={() => setDetailTicket(t)}>
                   <TableCell onClick={e => e.stopPropagation()}>
                     <Checkbox checked={selectedIds.has(t.id)} onCheckedChange={() => toggleSelect(t.id)} />
@@ -205,26 +316,36 @@ export default function TicketsPage() {
                   <TableCell className="text-sm">{getUserName(t.assignedTo)}</TableCell>
                   <TableCell onClick={e => e.stopPropagation()}>
                     <div className="flex gap-1 flex-wrap">
-                      {t.status === 'Open' && hasPermission('approve_ticket') && (
-                        <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'Approved')}>Approve</Button>
-                      )}
-                      {t.status === 'Approved' && hasPermission('allocate_ticket') && (
-                        <Button size="sm" variant="ghost" onClick={() => { setAllocateTicketId(t.id); setAllocateGroupId(t.assignedGroupId || ''); setAllocateOpen(true); }}>Assign Group</Button>
+                      {t.status === 'Open' && hasPermission('allocate_ticket') && (
+                        <Button size="sm" variant="ghost" onClick={() => { setAllocateTicketId(t.id); setAllocateGroupId(t.assignedGroupId || ''); setAllocateOpen(true); }}>
+                          Assign Group
+                        </Button>
                       )}
                       {canReassignGroup(t) && (
-                        <Button size="sm" variant="ghost" onClick={() => { setAllocateTicketId(t.id); setAllocateGroupId(t.assignedGroupId || ''); setAllocateOpen(true); }}>Change Group</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setAllocateTicketId(t.id); setAllocateGroupId(t.assignedGroupId || ''); setAllocateOpen(true); }}>
+                          Change Group
+                        </Button>
                       )}
                       {canStartWork(t) && (
-                        <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'In Progress', { assignedTo: currentUser!.id })}><Play className="h-3 w-3 mr-1" /> Start</Button>
+                        <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'In Progress', { assignedTo: currentUser!.id })}>
+                          <Play className="h-3 w-3 mr-1" /> Start
+                        </Button>
                       )}
                       {t.status === 'In Progress' && t.assignedTo === currentUser?.id && hasPermission('resolve_ticket') && (
-                        <Button size="sm" variant="ghost" onClick={() => { setResolveTicketId(t.id); setResolveNotes(''); setResolveOpen(true); }}><CheckCircle className="h-3 w-3 mr-1" /> Resolve</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setResolveTicketId(t.id); setResolveNotes(''); setResolveOpen(true); }}>
+                          <CheckCircle className="h-3 w-3 mr-1" /> Resolve
+                        </Button>
                       )}
                       {t.status === 'Resolved' && hasPermission('acknowledge_ticket') && (
                         <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'Acknowledged')}>Ack</Button>
                       )}
                       {t.status === 'Resolved' && hasPermission('reopen_ticket') && (
-                        <Button size="sm" variant="ghost" onClick={() => handleReopen(t)}><RotateCcw className="h-3 w-3 mr-1" /> Reopen</Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleReopen(t)}>
+                          <RotateCcw className="h-3 w-3 mr-1" /> Reopen
+                        </Button>
+                      )}
+                      {t.status === 'Acknowledged' && hasPermission('close_ticket') && (
+                        <Button size="sm" variant="ghost" onClick={() => changeStatus(t, 'Closed')}>Close</Button>
                       )}
                     </div>
                   </TableCell>
@@ -232,10 +353,16 @@ export default function TicketsPage() {
               ))}
             </TableBody>
           </Table>
+          <Pagination
+            total={filteredTickets.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={s => { setPageSize(s); setPage(1); }}
+          />
         </CardContent>
       </Card>
 
-      {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Create Ticket</DialogTitle></DialogHeader>
@@ -272,7 +399,6 @@ export default function TicketsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Allocate Group Dialog */}
       <Dialog open={allocateOpen} onOpenChange={setAllocateOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Assign Group to Ticket</DialogTitle></DialogHeader>
@@ -280,7 +406,7 @@ export default function TicketsPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Select Group</label>
               {(() => {
-                const ticket = tickets.find(t => t.id === allocateTicketId);
+                const ticket = rawTickets.find(t => t.id === allocateTicketId);
                 const groups = ticket ? getGroupsForSite(ticket.siteId) : [];
                 return (
                   <Select value={allocateGroupId} onValueChange={setAllocateGroupId}>
@@ -301,7 +427,6 @@ export default function TicketsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Resolve Dialog */}
       <Dialog open={resolveOpen} onOpenChange={setResolveOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Resolve Ticket</DialogTitle></DialogHeader>
@@ -315,7 +440,6 @@ export default function TicketsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Assign Dialog */}
       <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Bulk Assign {selectedOpenTickets.length} Ticket(s)</DialogTitle></DialogHeader>
@@ -337,7 +461,6 @@ export default function TicketsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Ticket Detail Dialog */}
       <Dialog open={!!detailTicket} onOpenChange={() => setDetailTicket(null)}>
         <DialogContent className="max-w-lg">
           {detailTicket && (

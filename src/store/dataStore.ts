@@ -1,4 +1,4 @@
-import type { Site, Category, CompanyProfile, RoleConfig, AppUser, Ticket, AuditEntry, AppRole, Permission, Group, GroupMember, CustomRole } from '@/types';
+import type { Site, Category, CompanyProfile, RoleConfig, AppUser, Ticket, AuditEntry, AppRole, Permission, Group, GroupMember, CustomRole, SlaPriority } from '@/types';
 import { expandPermissions } from '@/types';
 
 const KEYS = {
@@ -11,7 +11,8 @@ const KEYS = {
   audit: 'tms_audit',
   groups: 'tms_groups',
   groupMembers: 'tms_group_members',
-  seeded: 'tms_seeded_v2',
+  slaPriorities: 'tms_sla_priorities',
+  seeded: 'tms_seeded_v3',
 };
 
 function get<T>(key: string, fallback: T): T {
@@ -112,6 +113,13 @@ export const addAuditEntry = (e: AuditEntry) => {
   all.unshift(e);
   set(KEYS.audit, all);
 };
+
+// --- SLA Priorities ---
+export const getSlaPriorities = (): SlaPriority[] => get(KEYS.slaPriorities, []);
+export const saveSlaPriorities = (p: SlaPriority[]) => set(KEYS.slaPriorities, p);
+export const addSlaPriority = (p: SlaPriority) => { const all = getSlaPriorities(); all.push(p); saveSlaPriorities(all); };
+export const updateSlaPriority = (p: SlaPriority) => { saveSlaPriorities(getSlaPriorities().map(x => x.id === p.id ? p : x)); };
+export const deleteSlaPriority = (id: string) => { saveSlaPriorities(getSlaPriorities().filter(x => x.id !== id)); };
 
 // --- Seed ---
 export const isSeeded = (): boolean => get(KEYS.seeded, false);
